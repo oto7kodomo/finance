@@ -1,0 +1,61 @@
+name: 財務分析レポート生成
+
+on:
+  workflow_dispatch:
+    inputs:
+      company_name:
+        description: '企業名（例：トヨタ自動車株式会社）'
+        required: true
+        type: string
+      edinet_code:
+        description: 'EDINETコード（任意・分かる場合のみ、例：E02144）'
+        required: false
+        type: string
+      years:
+        description: '取得する期数'
+        required: false
+        default: '5'
+        type: choice
+        options:
+          - '3'
+          - '4'
+          - '5'
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: リポジトリをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python 3.11 をセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 日本語フォントをインストール
+        run: sudo apt-get install -y fonts-noto-cjk
+
+      - name: 依存パッケージをインストール
+        run: pip install -r requirements.txt
+
+      - name: 財務分析を実行
+        env:
+          EDINET_API_KEY: ${{ secrets.EDINET_API_KEY }}
+        run: |
+          ARGS="${{ inputs.company_name }}"
+          if [ -n "${{ inputs.edinet_code }}" ]; then
+            ARGS="$ARGS --edinet-code ${{ inputs.edinet_code }}"
+          fi
+          ARGS="$ARGS --years ${{ inputs.years }}"
+          python main.py $ARGS
+
+      - name: HTMLレポートをアップロード
+        uses: actions/upload-artifact@v4
+        with:
+          name: 財務分析レポート_${{ inputs.company_name }}
+          path: report_*.html
+          retention-days: 30

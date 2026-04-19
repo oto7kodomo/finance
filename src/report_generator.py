@@ -10,6 +10,17 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mticker
+from matplotlib import rcParams
+
+# Use Japanese fonts when available (installed by GitHub Actions workflow)
+for font in ["Noto Sans CJK JP", "Noto Sans JP", "IPAexGothic", "Hiragino Kaku Gothic Pro", "Meiryo"]:
+    try:
+        rcParams["font.family"] = font
+        plt.figure()
+        plt.close()
+        break
+    except Exception:
+        continue
 
 
 # --------------------------------------------------------------------------- #
