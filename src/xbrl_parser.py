@@ -229,15 +229,15 @@ class XBRLParser:
     # ------------------------------------------------------------------ #
 
     def _parse_csv(self, content: bytes, period_end: str) -> Optional[dict]:
-        # Detect encoding and preview raw content
+        # Detect encoding — EDINET XBRL_TO_CSV files use UTF-16 LE (BOM: ff fe)
         raw_text = None
         detected_enc = None
-        for enc in ("utf-8-sig", "utf-8", "cp932", "shift-jis"):
+        for enc in ("utf-16", "utf-16-le", "utf-8-sig", "utf-8", "cp932", "shift-jis"):
             try:
                 raw_text = content.decode(enc)
                 detected_enc = enc
                 break
-            except UnicodeDecodeError:
+            except (UnicodeDecodeError, Exception):
                 continue
 
         if raw_text is None:
