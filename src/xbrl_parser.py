@@ -244,10 +244,6 @@ class XBRLParser:
             print(f"    CSVエンコーディング不明。先頭バイト: {content[:40].hex()}")
             return None
 
-        # Show first line for debugging
-        first_lines = raw_text.split("\n")[:3]
-        print(f"    CSVプレビュー({detected_enc}): {repr(first_lines[0][:120])}")
-
         df = None
         for sep in (",", "\t", "|"):
             try:

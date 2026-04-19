@@ -33,8 +33,8 @@ def _yen(value: Optional[float], unit: str = "百万円") -> str:
     v = value / 1_000_000  # convert raw yen → millions
     if abs(v) >= 1_000_000:
         return f"{v / 1_000_000:,.1f} 兆円"
-    if abs(v) >= 10_000:
-        return f"{v / 10_000:,.1f} 億円"
+    if abs(v) >= 100:
+        return f"{v / 100:,.1f} 億円"
     return f"{v:,.0f} {unit}"
 
 
