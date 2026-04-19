@@ -229,16 +229,44 @@ class XBRLParser:
     # ------------------------------------------------------------------ #
 
     def _parse_csv(self, content: bytes, period_end: str) -> Optional[dict]:
-        df = None
+        # Detect encoding and preview raw content
+        raw_text = None
+        detected_enc = None
         for enc in ("utf-8-sig", "utf-8", "cp932", "shift-jis"):
             try:
-                df = pd.read_csv(io.BytesIO(content), encoding=enc, dtype=str, header=0)
+                raw_text = content.decode(enc)
+                detected_enc = enc
                 break
-            except Exception:
+            except UnicodeDecodeError:
+                continue
+
+        if raw_text is None:
+            print(f"    CSVエンコーディング不明。先頭バイト: {content[:40].hex()}")
+            return None
+
+        # Show first line for debugging
+        first_lines = raw_text.split("\n")[:3]
+        print(f"    CSVプレビュー({detected_enc}): {repr(first_lines[0][:120])}")
+
+        df = None
+        for sep in (",", "\t", "|"):
+            try:
+                df = pd.read_csv(
+                    io.StringIO(raw_text),
+                    sep=sep,
+                    dtype=str,
+                    header=0,
+                    on_bad_lines="skip",
+                )
+                if not df.empty and len(df.columns) >= 3:
+                    break
+                df = None
+            except Exception as e:
+                print(f"    CSV sep={repr(sep)} エラー: {e}")
                 continue
 
         if df is None or df.empty:
-            print("    CSV読み込み失敗")
+            print("    CSV読み込み失敗（全セパレーター試行済み）")
             return None
 
         cols = list(df.columns)
