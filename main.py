@@ -22,7 +22,7 @@ import sys
 
 from dotenv import load_dotenv
 
-from src.edinet_client import EdinetClient
+from src.edinet_client import EdinetApiError, EdinetClient
 from src.financial_analyzer import FinancialAnalyzer
 from src.report_generator import ReportGenerator
 from src.xbrl_parser import XBRLParser
@@ -69,6 +69,15 @@ def main() -> None:
 
     client = EdinetClient(api_key=api_key)
 
+    # Fail fast on auth errors before doing a long search
+    try:
+        print("EDINET APIキーを確認中...")
+        client.validate_api_key()
+        print("  APIキー OK")
+    except EdinetApiError as e:
+        print(f"\n{e}", file=sys.stderr)
+        sys.exit(1)
+
     # ------------------------------------------------------------------ #
     # 1. Resolve EDINET code                                               #
     # ------------------------------------------------------------------ #
@@ -99,7 +108,11 @@ def main() -> None:
     # 2. Fetch annual report list                                          #
     # ------------------------------------------------------------------ #
     print(f"\n有価証券報告書（過去{args.years}期）を検索しています...")
-    reports = client.get_annual_reports(edinet_code, years=args.years)
+    try:
+        reports = client.get_annual_reports(edinet_code, years=args.years)
+    except EdinetApiError as e:
+        print(f"\n{e}", file=sys.stderr)
+        sys.exit(1)
 
     if not reports:
         print("有価証券報告書が見つかりませんでした")

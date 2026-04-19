@@ -1,5 +1,6 @@
 """EDINET API v2 client for fetching annual securities reports."""
 
+import calendar
 import time
 from datetime import date, timedelta
 from typing import Optional
@@ -8,6 +9,13 @@ import requests
 
 
 ANNUAL_REPORT_CODE = "120"
+
+# Filing month order by likelihood (March FY = June/July most common in Japan)
+_MONTH_PRIORITY = [6, 7, 8, 12, 1, 9, 10, 11, 2, 3, 4, 5]
+
+
+class EdinetApiError(Exception):
+    pass
 
 
 class EdinetClient:
@@ -47,48 +55,77 @@ class EdinetClient:
         if r is None:
             return []
         try:
-            return r.json().get("results") or []
+            data = r.json()
         except Exception:
             return []
+
+        # EDINET returns HTTP 200 even for auth errors; check metadata.status
+        meta = data.get("metadata", {})
+        status = str(meta.get("status", "200"))
+        if status != "200":
+            msg = meta.get("message", "")
+            if status in ("400", "401"):
+                raise EdinetApiError(
+                    f"EDINET APIエラー (status={status}): {msg}\n"
+                    "  → APIキーが未設定または無効です。\n"
+                    "  → GitHub Secrets に EDINET_API_KEY を設定してください。\n"
+                    "  → https://disclosure.edinet-api.go.jp/ でAPIキーを取得できます。"
+                )
+            print(f"    EDINET warning: status={status} message={msg}")
+            return []
+
+        return data.get("results") or []
+
+    def validate_api_key(self) -> None:
+        """Call once at startup to fail fast on auth errors."""
+        test_date = date.today() - timedelta(days=30)
+        r = self._get("documents.json", {"date": test_date.strftime("%Y-%m-%d"), "type": 2})
+        if r is None:
+            raise EdinetApiError("EDINET APIに接続できませんでした。")
+        data = r.json()
+        status = str(data.get("metadata", {}).get("status", "200"))
+        if status in ("400", "401"):
+            msg = data.get("metadata", {}).get("message", "")
+            raise EdinetApiError(
+                f"EDINET API認証エラー (status={status}): {msg}\n"
+                "  → GitHub Secrets に EDINET_API_KEY を設定してください。\n"
+                "  → https://disclosure.edinet-api.go.jp/ でAPIキーを取得できます。"
+            )
+
+    # ------------------------------------------------------------------ #
+    # Date generation helpers                                              #
+    # ------------------------------------------------------------------ #
+
+    def _all_dates_for_years(self, years_back: int) -> list[date]:
+        """Return all dates (ordered by filing likelihood) for the past *years_back* years.
+
+        Ordering: for each year, iterate months in _MONTH_PRIORITY order (June-first)
+        so that March-FY companies (most common) are found quickly.
+        """
+        today = date.today()
+        dates = []
+        for year_offset in range(years_back):
+            year = today.year - year_offset
+            for month in _MONTH_PRIORITY:
+                _, last_day = calendar.monthrange(year, month)
+                for day in range(1, last_day + 1):
+                    try:
+                        d = date(year, month, day)
+                        if d <= today:
+                            dates.append(d)
+                    except ValueError:
+                        pass
+        return dates
 
     # ------------------------------------------------------------------ #
     # Public API                                                           #
     # ------------------------------------------------------------------ #
 
     def search_company(self, name: str) -> Optional[dict]:
-        """Search for a listed company by name and return its EDINET metadata.
-
-        Strategy: check weekly intervals going back 7 years, prioritising the
-        June-August window where most March-FY companies file their annual
-        reports (~70 % of Tokyo-listed companies).
-        """
-        today = date.today()
-
-        # Build a prioritised date list: check every week, but pre-prioritise
-        # the common filing months so we find the company faster.
-        def date_range_weekly(start: date, end: date):
-            d = start
-            while d >= end:
-                yield d
-                d -= timedelta(days=7)
-
-        priority_dates = []
-        other_dates = []
-        cutoff = today - timedelta(days=365 * 7)
-
-        d = today
-        while d >= cutoff:
-            if d.month in (6, 7, 8, 3, 4):
-                priority_dates.append(d)
-            else:
-                other_dates.append(d)
-            d -= timedelta(days=7)
-
-        search_dates = priority_dates + other_dates
-
-        print(f"  企業を検索中", end="", flush=True)
-        for i, d in enumerate(search_dates):
-            if i % 15 == 0:
+        """Search for a listed company by name and return its EDINET metadata."""
+        print("  企業を検索中", end="", flush=True)
+        for i, d in enumerate(self._all_dates_for_years(7)):
+            if i % 20 == 0:
                 print(".", end="", flush=True)
 
             docs = self._docs_for_date(d)
@@ -106,19 +143,19 @@ class EdinetClient:
         return None
 
     def get_annual_reports(self, edinet_code: str, years: int = 5) -> list:
-        """Return up to *years* annual-report metadata dicts for the company."""
-        today = date.today()
-        found: dict[str, dict] = {}  # period_end -> doc
+        """Return up to *years* annual-report documents for the company.
 
-        d = today
-        cutoff = today - timedelta(days=365 * (years + 2))
+        Uses daily search ordered by filing-month likelihood so that common
+        March-FY filers are found quickly and the loop exits early.
+        """
+        found: dict[str, dict] = {}
 
-        print(f"  有価証券報告書を検索中", end="", flush=True)
-        dot_counter = 0
-        while d >= cutoff and len(found) < years:
-            if dot_counter % 15 == 0:
+        print("  有価証券報告書を検索中", end="", flush=True)
+        for i, d in enumerate(self._all_dates_for_years(years + 2)):
+            if len(found) >= years:
+                break
+            if i % 20 == 0:
                 print(".", end="", flush=True)
-            dot_counter += 1
 
             docs = self._docs_for_date(d)
             time.sleep(0.35)
@@ -131,8 +168,6 @@ class EdinetClient:
                     period = doc.get("periodEnd", "")
                     if period and period not in found:
                         found[period] = doc
-
-            d -= timedelta(days=7)
 
         print(f" {len(found)}件見つかりました")
         return sorted(found.values(), key=lambda x: x.get("periodEnd", ""), reverse=True)[:years]
