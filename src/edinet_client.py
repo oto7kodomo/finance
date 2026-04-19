@@ -11,7 +11,7 @@ ANNUAL_REPORT_CODE = "120"
 
 
 class EdinetClient:
-    BASE_URL = "https://disclosure.edinet-api.go.jp/api/v2"
+    BASE_URL = "https://api.edinet-fsa.go.jp/api/v2"
 
     def __init__(self, api_key: str = ""):
         self.api_key = api_key
